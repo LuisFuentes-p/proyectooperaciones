@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { SummaryArea } from './areas/SummaryArea';
-import { TrackingArea } from './areas/TrackingArea';
+import { FinanceArea } from './areas/FinanceArea';
+import { InventarioArea } from './areas/InventarioArea';
+import { ComprasArea } from './areas/ComprasArea';
+import { VentasArea } from './areas/VentasArea';
+import { DevolucionesArea } from './areas/DevolucionesArea';
 import { UsersArea } from './areas/UsersArea';
-import { PdfViewer } from './components/PdfViewer';
 import { TopTabs } from './components/TopTabs';
 import { UserSwitcher } from './components/UserSwitcher';
 import { AccessMatrix } from './oop/AccessMatrix';
@@ -11,10 +13,10 @@ import { FinanceApi } from './oop/FinanceApi';
 const apiBaseUrl = import.meta.env.VITE_FINANZAS_API_URL ?? 'http://localhost:8000';
 const api = new FinanceApi(apiBaseUrl);
 
-export default function App() {
+export default function AppShell() {
   const [currentUsername, setCurrentUsername] = useState(AccessMatrix.demoUsers[0].username);
   const [session, setSession] = useState(null);
-  const [activeTab, setActiveTab] = useState('summary');
+  const [activeTab, setActiveTab] = useState('finanzas');
   const [reports, setReports] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedPdfUrl, setSelectedPdfUrl] = useState(api.getPublicReportPdfUrl());
@@ -27,7 +29,7 @@ export default function App() {
 
   const currentRole = session?.role ?? AccessMatrix.getRole(currentUsername);
   const tabs = AccessMatrix.getTabs(currentRole);
-  const accessibleTabCount = tabs.filter((tab) => tab.enabled).length;
+  const accessibleAreaCount = tabs.filter((tab) => tab.enabled).length;
 
   useEffect(() => {
     void loadSession(currentUsername);
@@ -46,7 +48,7 @@ export default function App() {
       });
       setSelectedPdfUrl(api.getPublicReportPdfUrl());
 
-      if (currentUser.permissions.includes('tracking')) {
+      if (currentUser.permissions.includes('finanzas')) {
         setReportsLoading(true);
         const trackingData = await api.listReports(username);
         setReports(trackingData.items ?? []);
@@ -54,7 +56,7 @@ export default function App() {
         setReports([]);
       }
 
-      if (currentUser.permissions.includes('users')) {
+      if (currentUser.permissions.includes('usuarios')) {
         setUsersLoading(true);
         const usersData = await api.listUsers(username);
         setUsers(usersData.items ?? []);
@@ -74,7 +76,7 @@ export default function App() {
   }
 
   async function refreshTracking() {
-    if (!session?.permissions.includes('tracking')) {
+    if (!session?.permissions.includes('finanzas')) {
       return [];
     }
 
@@ -94,14 +96,14 @@ export default function App() {
 
     try {
       const createdReport = await api.createReport(currentUsername);
-      if (session?.permissions.includes('tracking')) {
+      if (session?.permissions.includes('finanzas')) {
         const refreshedReports = await refreshTracking();
         const trackedReport = refreshedReports.find((report) => report.id === createdReport.id);
         setSelectedPdfUrl(trackedReport ? api.getTrackedReportPdfUrl(trackedReport.id) : api.getPublicReportPdfUrl());
       } else {
         setSelectedPdfUrl(api.getPublicReportPdfUrl());
       }
-      setActiveTab('summary');
+      setActiveTab('finanzas');
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : 'Error desconocido');
     } finally {
@@ -111,7 +113,7 @@ export default function App() {
 
   function handleSelectReport(report) {
     setSelectedPdfUrl(api.getTrackedReportPdfUrl(report.id));
-    setActiveTab('tracking');
+    setActiveTab('finanzas');
   }
 
   async function handleDeleteReport(reportId) {
@@ -144,27 +146,47 @@ export default function App() {
   }
 
   const visibleContent = {
-    summary: (
-      <SummaryArea
+    finanzas: (
+      <FinanceArea
         session={session}
         reports={reports}
         onGenerateReport={handleGenerateReport}
         generating={creatingReport}
         sessionLoading={sessionLoading}
-        accessCount={accessibleTabCount}
-      />
-    ),
-    tracking: (
-      <TrackingArea
-        reports={reports}
-        loading={reportsLoading}
+        accessCount={accessibleAreaCount}
+        reportsLoading={reportsLoading}
         busyId={workingReportId}
-        onView={handleSelectReport}
-        onDelete={handleDeleteReport}
-        allowed={session?.permissions.includes('tracking')}
+        onViewReport={handleSelectReport}
+        onDeleteReport={handleDeleteReport}
+        allowed={session?.permissions.includes('finanzas')}
+        previewUrl={selectedPdfUrl}
       />
     ),
-    users: <UsersArea users={users} loading={usersLoading} allowed={session?.permissions.includes('users')} />,
+    compras: (
+      <ComprasArea
+        allowed={session?.permissions.includes('compras')}
+        username={currentUsername}
+      />
+    ),
+    ventas: (
+      <VentasArea
+        allowed={session?.permissions.includes('ventas')}
+        username={currentUsername}
+      />
+    ),
+    inventario: (
+      <InventarioArea
+        allowed={session?.permissions.includes('inventario')}
+        username={currentUsername}
+      />
+    ),
+    devoluciones: (
+      <DevolucionesArea
+        allowed={session?.permissions.includes('devoluciones')}
+        username={currentUsername}
+      />
+    ),
+    usuarios: <UsersArea users={users} loading={usersLoading} allowed={session?.permissions.includes('usuarios')} />,
   };
 
   return (
@@ -172,10 +194,10 @@ export default function App() {
       <section className="panel app-panel">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Finanzas</p>
-            <h1>Areas con control por rol</h1>
+            <p className="eyebrow">Sistema de operaciones</p>
+            <h1>Areas de la compania por rol</h1>
             <p className="description">
-              La interfaz separa cada area en su propio modulo y deshabilita lo que no permite el rol activo.
+              Las tabs representan los modulos del sistema completo. Cada rol habilita solo las areas que puede acceder.
             </p>
           </div>
 
@@ -187,8 +209,6 @@ export default function App() {
         {error ? <p className="error">{error}</p> : null}
 
         <div className="content-stack">{visibleContent[activeTab]}</div>
-
-        <PdfViewer src={selectedPdfUrl} />
       </section>
     </main>
   );

@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+
+  frontend:
+    image: proyectooperaciones_frontend:latest
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_FINANZAS_API_URL: http://localhost:8000
+      VITE_OPERACIONES_API_URL: http://localhost:8002
+    depends_on:
+      - finanzas
+      - logistica
+
+  finanzas:
+    build:
+      context: ../../microservicios/finanzas
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+
+  inventario:
+    build:
+      context: ../../microservicios/inventario
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+
+  logistica:
+    build:
+      context: ../../microservicios/logistica
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+
+  compras:
+    build:
+      context: ../../microservicios/compras
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+
+  autenticacion:
+    build:
+      context: ../../microservicios/autenticacion
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    depends_on:
+      - postgres
+    env_file:
+      - ./.env
+
+  nomina:
+    build:
+      context: ../../microservicios/nomina
+      dockerfile: Dockerfile
+    image: proyectooperaciones_nomina:latest
+    ports:
+      - "8006:8006"
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+
+  operaciones:
+    build:
+      context: ../../microservicios/operaciones
+      dockerfile: Dockerfile
+    # operaciones/app exposes 8001 in the container; map to different host port to avoid conflict
+    ports:
+      - "8005:8001"
+    env_file:
+      - ./.env
+    depends_on:
+      - postgres
+
+  zookeeper:
+    image: zookeeper:3.7
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9092:9092"
+    env_file:
+      - ./.env
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - ./init-kafka-topics.sh:/usr/local/bin/init-kafka-topics.sh:ro
+    command: ["bash", "-c", "/usr/local/bin/init-kafka-topics.sh & /etc/confluent/docker/run"]
+    depends_on:
+      - zookeeper
+
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    env_file:
+      - ./.env
+    # Postgres credentials are provided via the .env file (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
