@@ -1,4 +1,28 @@
 services:
+  finanzas:
+    build:
+      context: ../../microservicios/finanzas
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_FINANZAS_PDF_URL: http://localhost:8000/reports/ingresos-totales/pdf
+    depends_on:
+      finanzas:
+        condition: service_started
+
   zookeeper:
     image: zookeeper
     ports:
