@@ -31,10 +31,14 @@ except ImportError:
 
 app = FastAPI(title="Compras Service", version="2.0.0")
 
+# CORS configuration driven by environment to avoid wildcard+credentials issues
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+allow_credentials = os.getenv("ALLOW_CREDENTIALS", "false").lower() == "true"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

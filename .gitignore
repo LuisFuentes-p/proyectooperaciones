@@ -29,3 +29,9 @@ dist/
 pip-wheel-metadata/
 
 Historias_de_Usuario.md
+TESTING_MICROSERVICIOS.md
+QUICK_REFERENCE.md
+README_TESTING.md
+TESTING_WINDOWS.md
+test_microservicios.ps1
+test_microservicios.sh

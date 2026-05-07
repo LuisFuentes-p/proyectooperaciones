@@ -17,10 +17,14 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 app = FastAPI(title='Finanzas', version='0.1.0')
 
+# CORS configuration driven by environment to avoid wildcard+credentials issues
+allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
+allow_credentials = os.getenv('ALLOW_CREDENTIALS', 'false').lower() == 'true'
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=False,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
     allow_methods=['*'],
     allow_headers=['*'],
 )

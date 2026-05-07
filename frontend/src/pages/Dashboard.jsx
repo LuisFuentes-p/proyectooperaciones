@@ -1,9 +1,17 @@
 
-import { useState } from "react";
+import React, { useState } from "react";
 import NavBar from "../components/NavBar";
+import Inventory from "../modules/Inventory";
+import Compras from "../modules/Compras";
+import Finanzas from "../modules/Finanzas";
+import Logistica from "../modules/Logistica";
+import Nomina from "../modules/Nomina";
+import { useAuth } from "../context/AuthContext";
+
 
 export default function Dashboard() {
 
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("inventario");
 
   return (
@@ -16,13 +24,7 @@ export default function Dashboard() {
 
       <div className="flex-1 p-6 bg-gray-100">
 
-        {activeTab === "inventario" && (
-          <div>
-            <h1 className="text-3xl font-bold">
-              Inventario
-            </h1>
-          </div>
-        )}
+        {activeTab === "inventario" && <Inventory username={user?.username || "admin"} />}
 
         {activeTab === "comercial" && (
           <div>
@@ -32,29 +34,15 @@ export default function Dashboard() {
           </div>
         )}
 
+        {activeTab === "comercial" && <Compras />}
+
+        {activeTab === "nomina" && <Nomina role={user?.role} permissions={user?.permissions} />}
+
         {activeTab === "logistica" && (
-          <div>
-            <h1 className="text-3xl font-bold">
-              Logística
-            </h1>
-          </div>
+          <Logistica username={user?.username || "admin"} />
         )}
 
-        {activeTab === "nomina" && (
-          <div>
-            <h1 className="text-3xl font-bold">
-              Nómina
-            </h1>
-          </div>
-        )}
-
-        {activeTab === "finanzas" && (
-          <div>
-            <h1 className="text-3xl font-bold">
-              Finanzas
-            </h1>
-          </div>
-        )}
+        {activeTab === "finanzas" && <Finanzas />}
 
       </div>
 
