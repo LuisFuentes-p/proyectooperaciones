@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import tempfile
+import unittest
+
 from fastapi.testclient import TestClient
-import pytest
 
 import app.main as auth_app
 
@@ -62,30 +64,34 @@ class FakeConn:
         return False
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    store = {"users": {}}
-    monkeypatch.setattr(auth_app, "initialize_database", lambda: None)
-    monkeypatch.setattr(auth_app.psycopg.errors, "UniqueViolation", FakeUniqueViolation)
-    monkeypatch.setattr(auth_app, "get_conn", lambda: FakeConn(store))
-    monkeypatch.setattr(auth_app.bcrypt, "hash", lambda value: f"hashed:{value}")
-    monkeypatch.setattr(auth_app.bcrypt, "verify", lambda value, hashed: hashed == f"hashed:{value}")
-    with TestClient(auth_app.app) as test_client:
-        yield test_client
+class AuthServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.store = {"users": {}}
 
+        auth_app.initialize_database = lambda: None
+        auth_app.psycopg.errors.UniqueViolation = FakeUniqueViolation
+        auth_app.get_conn = lambda: FakeConn(self.store)
+        auth_app.bcrypt.hash = lambda value: f"hashed:{value}"
+        auth_app.bcrypt.verify = lambda value, hashed: hashed == f"hashed:{value}"
 
-def test_health(client):
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["service"] == "autenticacion"
+        self.client = TestClient(auth_app.app)
 
+    def tearDown(self):
+        self.client.close()
+        self.temp_dir.cleanup()
 
-def test_register_and_login(client):
-    register_response = client.post("/register", json={"username": "alice", "password": "secret"})
-    assert register_response.status_code == 200
-    assert register_response.json()["message"] == "user created"
+    def test_health(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["service"], "autenticacion")
 
-    login_response = client.post("/login", json={"username": "alice", "password": "secret"})
-    assert login_response.status_code == 200
-    assert login_response.json()["token_type"] == "bearer"
-    assert login_response.json()["access_token"]
+    def test_register_and_login(self):
+        register_response = self.client.post("/register", json={"username": "alice", "password": "secret"})
+        self.assertEqual(register_response.status_code, 200)
+        self.assertEqual(register_response.json()["message"], "user created")
+
+        login_response = self.client.post("/login", json={"username": "alice", "password": "secret"})
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(login_response.json()["token_type"], "bearer")
+        self.assertTrue(login_response.json()["access_token"])

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import unittest
 
 from fastapi.testclient import TestClient
-import pytest
 
 import app.main as inv_app
 
@@ -123,59 +123,67 @@ class FakeConn:
         return False
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    store = {
-        "items": [
-            {
-                "id": 1,
-                "sku": "SKU-001",
-                "name": "Laptop",
-                "description": "Portable",
-                "quantity_on_hand": 5,
-                "minimum_threshold": 10,
-                "reorder_quantity": 20,
-                "unit_cost": 1200.0,
-                "unit_price": 1500.0,
-                "unit_of_measure": "unidad",
-                "supplier_id": 1,
-                "category": "Electrónica",
-                "active": True,
-                "last_updated": datetime(2026, 5, 6, 10, 0, 0),
-            }
-        ],
-        "stock_movements": [],
-        "requests": [],
-    }
-    monkeypatch.setattr(inv_app, "initialize_database", lambda: None)
-    monkeypatch.setattr(inv_app, "seed_items", lambda: None)
-    monkeypatch.setattr(inv_app, "get_db", lambda: FakeConn(store))
-    with TestClient(inv_app.app) as test_client:
-        yield test_client
+class InventarioServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.store = {
+            "items": [
+                {
+                    "id": 1,
+                    "sku": "SKU-001",
+                    "name": "Laptop",
+                    "description": "Portable",
+                    "quantity_on_hand": 5,
+                    "minimum_threshold": 10,
+                    "reorder_quantity": 20,
+                    "unit_cost": 1200.0,
+                    "unit_price": 1500.0,
+                    "unit_of_measure": "unidad",
+                    "supplier_id": 1,
+                    "category": "Electrónica",
+                    "active": True,
+                    "last_updated": datetime(2026, 5, 6, 10, 0, 0),
+                }
+            ],
+            "stock_movements": [],
+            "requests": [],
+        }
+        self._orig_initialize_database = inv_app.initialize_database
+        self._orig_seed_items = inv_app.seed_items
+        self._orig_get_db = inv_app.get_db
 
+        inv_app.initialize_database = lambda: None
+        inv_app.seed_items = lambda: None
+        inv_app.get_db = lambda: FakeConn(self.store)
 
-def test_health_and_list_items(client):
-    health_response = client.get("/health")
-    assert health_response.status_code == 200
+        self.client = TestClient(inv_app.app)
 
-    items_response = client.get("/items", headers={"user-name": "ops"})
-    assert items_response.status_code == 200
-    assert items_response.json()[0]["below_minimum"] is True
+    def tearDown(self):
+        self.client.close()
+        inv_app.initialize_database = self._orig_initialize_database
+        inv_app.seed_items = self._orig_seed_items
+        inv_app.get_db = self._orig_get_db
 
+    def test_health_and_list_items(self):
+        health_response = self.client.get("/health")
+        self.assertEqual(health_response.status_code, 200)
 
-def test_update_stock_and_create_request(client):
-    update_response = client.post(
-        "/items/1/stock/update",
-        params={"quantity_change": 3, "reason": "purchase_received"},
-        headers={"user-name": "ops"},
-    )
-    assert update_response.status_code == 200
-    assert update_response.json()["new_quantity"] == 8
+        items_response = self.client.get("/items", headers={"user-name": "ops"})
+        self.assertEqual(items_response.status_code, 200)
+        self.assertTrue(items_response.json()[0]["below_minimum"])
 
-    request_response = client.post(
-        "/solicitudes-logistica",
-        params={"item_id": 1, "requested_quantity": 10, "reason": "restock"},
-        headers={"user-name": "ops"},
-    )
-    assert request_response.status_code == 200
-    assert request_response.json()["status"] == "pending"
+    def test_update_stock_and_create_request(self):
+        update_response = self.client.post(
+            "/items/1/stock/update",
+            params={"quantity_change": 3, "reason": "purchase_received"},
+            headers={"user-name": "ops"},
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()["new_quantity"], 8)
+
+        request_response = self.client.post(
+            "/solicitudes-logistica",
+            params={"item_id": 1, "requested_quantity": 10, "reason": "restock"},
+            headers={"user-name": "ops"},
+        )
+        self.assertEqual(request_response.status_code, 200)
+        self.assertEqual(request_response.json()["status"], "pending")

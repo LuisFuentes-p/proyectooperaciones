@@ -1,7 +1,7 @@
 from datetime import datetime
+import unittest
 
 from fastapi.testclient import TestClient
-import pytest
 
 import app.main as logistica_app
 
@@ -109,52 +109,51 @@ class FakeConn:
         return False
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    store = {"deliveries": []}
-    monkeypatch.setattr(logistica_app, "get_db", lambda: FakeConn(store))
-    # prevent startup seeding that expects real DB
-    monkeypatch.setattr(logistica_app, "seed_items", lambda: None)
-    with TestClient(logistica_app.app) as test_client:
-        yield test_client
+class LogisticaDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.store = {"deliveries": []}
+        self._orig_get_db = logistica_app.get_db
+        self._orig_seed_items = getattr(logistica_app, "seed_items", None)
+        logistica_app.get_db = lambda: FakeConn(self.store)
+        if self._orig_seed_items is not None:
+            logistica_app.seed_items = lambda: None
+        self.client = TestClient(logistica_app.app)
 
+    def tearDown(self):
+        self.client.close()
+        logistica_app.get_db = self._orig_get_db
+        if self._orig_seed_items is not None:
+            logistica_app.seed_items = self._orig_seed_items
 
-def test_create_assign_and_update_delivery_flow(client):
-    # health
-    health = client.get('/health')
-    assert health.status_code == 200
+    def test_create_assign_and_update_delivery_flow(self):
+        health = self.client.get('/health')
+        self.assertEqual(health.status_code, 200)
 
-    # create
-    resp = client.post("/deliveries", json={"order_id": 10, "delivery_address": "Calle Falsa 123"}, headers={"user-name": "logistica"})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "pending"
-    d_id = data["id"]
+        resp = self.client.post("/deliveries", json={"order_id": 10, "delivery_address": "Calle Falsa 123"}, headers={"user-name": "logistica"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "pending")
+        d_id = data["id"]
 
-    # assign
-    resp2 = client.patch(f"/deliveries/{d_id}/assign", json={"assigned_to": "Juan", "vehicle": "Van-01"}, headers={"user-name": "logistica"})
-    assert resp2.status_code == 200
-    assert resp2.json()["assigned_to"] == "Juan"
+        resp2 = self.client.patch(f"/deliveries/{d_id}/assign", json={"assigned_to": "Juan", "vehicle": "Van-01"}, headers={"user-name": "logistica"})
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(resp2.json()["assigned_to"], "Juan")
 
-    # update status to in_transit
-    resp3 = client.patch(f"/deliveries/{d_id}/status", json={"status": "in_transit"}, headers={"user-name": "logistica"})
-    assert resp3.status_code == 200
-    assert resp3.json()["status"] == "in_transit"
+        resp3 = self.client.patch(f"/deliveries/{d_id}/status", json={"status": "in_transit"}, headers={"user-name": "logistica"})
+        self.assertEqual(resp3.status_code, 200)
+        self.assertEqual(resp3.json()["status"], "in_transit")
 
-    # update status to delivered
-    resp4 = client.patch(f"/deliveries/{d_id}/status", json={"status": "delivered"}, headers={"user-name": "logistica"})
-    assert resp4.status_code == 200
-    assert resp4.json()["status"] == "delivered"
+        resp4 = self.client.patch(f"/deliveries/{d_id}/status", json={"status": "delivered"}, headers={"user-name": "logistica"})
+        self.assertEqual(resp4.status_code, 200)
+        self.assertEqual(resp4.json()["status"], "delivered")
 
-    # get
-    resp5 = client.get(f"/deliveries/{d_id}", headers={"user-name": "logistica"})
-    assert resp5.status_code == 200
-    got = resp5.json()
-    assert got["id"] == d_id
-    assert got["status"] == "delivered"
+        resp5 = self.client.get(f"/deliveries/{d_id}", headers={"user-name": "logistica"})
+        self.assertEqual(resp5.status_code, 200)
+        got = resp5.json()
+        self.assertEqual(got["id"], d_id)
+        self.assertEqual(got["status"], "delivered")
 
-    # list
-    resp6 = client.get("/deliveries", headers={"user-name": "logistica"})
-    assert resp6.status_code == 200
-    arr = resp6.json()
-    assert any(d["id"] == d_id for d in arr)
+        resp6 = self.client.get("/deliveries", headers={"user-name": "logistica"})
+        self.assertEqual(resp6.status_code, 200)
+        arr = resp6.json()
+        self.assertTrue(any(d["id"] == d_id for d in arr))

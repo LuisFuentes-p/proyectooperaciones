@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import unittest
 
 from fastapi.testclient import TestClient
-import pytest
 
 import app.main as fin_app
 
@@ -104,43 +104,47 @@ class FakeConn:
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        self.close()
         return False
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    store = {
-        "users": [
-            {"id": 1, "username": "admin", "display_name": "Administrador", "role": "admin", "active": True, "created_at": datetime(2026, 5, 6, 10, 0, 0)},
-            {"id": 2, "username": "viewer", "display_name": "Consulta General", "role": "viewer", "active": True, "created_at": datetime(2026, 5, 6, 10, 5, 0)},
-        ],
-        "reports": [],
-    }
-    monkeypatch.setattr(fin_app, "initialize_database", lambda: None)
-    monkeypatch.setattr(fin_app, "get_connection", lambda: FakeConn(store))
-    with TestClient(fin_app.app) as test_client:
-        yield test_client
+class FinanzasServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.store = {
+            "users": [
+                {"id": 1, "username": "admin", "display_name": "Administrador", "role": "admin", "active": True, "created_at": datetime(2026, 5, 6, 10, 0, 0)},
+                {"id": 2, "username": "viewer", "display_name": "Consulta General", "role": "viewer", "active": True, "created_at": datetime(2026, 5, 6, 10, 5, 0)},
+            ],
+            "reports": [],
+        }
+        self._orig_initialize_database = fin_app.initialize_database
+        self._orig_get_connection = fin_app.get_connection
 
+        fin_app.initialize_database = lambda: None
+        fin_app.get_connection = lambda: FakeConn(self.store)
+        self.client = TestClient(fin_app.app)
 
-def test_health(client):
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    def tearDown(self):
+        self.client.close()
+        fin_app.initialize_database = self._orig_initialize_database
+        fin_app.get_connection = self._orig_get_connection
 
+    def test_health(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ok")
 
-def test_user_permissions_and_report_creation(client):
-    user_response = client.get("/users/me", headers={"X-User-Name": "admin"})
-    assert user_response.status_code == 200
-    assert "finanzas" in user_response.json()["permissions"]
+    def test_user_permissions_and_report_creation(self):
+        user_response = self.client.get("/users/me", headers={"X-User-Name": "admin"})
+        self.assertEqual(user_response.status_code, 200)
+        self.assertIn("finanzas", user_response.json()["permissions"])
 
-    list_response = client.get("/users", headers={"X-User-Name": "admin"})
-    assert list_response.status_code == 200
-    assert len(list_response.json()["items"]) == 2
+        list_response = self.client.get("/users", headers={"X-User-Name": "admin"})
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(len(list_response.json()["items"]), 2)
 
-    report_response = client.post("/reports/ingresos-totales", headers={"X-User-Name": "admin"})
-    assert report_response.status_code == 200
-    payload = report_response.json()
-    assert payload["report_key"] == "ingresos_totales"
-    assert payload["file_size"] > 0
-    assert payload["id"] == 1
+        report_response = self.client.post("/reports/ingresos-totales", headers={"X-User-Name": "admin"})
+        self.assertEqual(report_response.status_code, 200)
+        payload = report_response.json()
+        self.assertEqual(payload["report_key"], "ingresos_totales")
+        self.assertGreater(payload["file_size"], 0)
+        self.assertEqual(payload["id"], 1)

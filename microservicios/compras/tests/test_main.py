@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import unittest
 
 from fastapi.testclient import TestClient
-import pytest
 
 import app.main as compras_app
 
@@ -205,53 +205,67 @@ class FakeConn:
         return False
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    store = {
-        "suppliers": [{"id": 1, "name": "TechSupply Inc", "contact_email": "sales@techsupply.com"}],
-        "customers": [{"id": 1, "name": "ABC Retail Store", "contact_email": "manager@abc.com"}],
-        "items": [
-            {"id": 1, "sku": "SKU-001", "name": "Laptop", "quantity_on_hand": 10, "unit_cost": 1200.0, "unit_price": 1500.0},
-        ],
-        "purchase_orders": [],
-        "sales_orders": [],
-        "stock_movements": [],
-        "payment_records": [],
-    }
-    monkeypatch.setattr(compras_app, "initialize_database", lambda: None)
-    monkeypatch.setattr(compras_app, "seed_data", lambda: None)
-    monkeypatch.setattr(compras_app, "get_db", lambda: FakeConn(store))
-    monkeypatch.setattr(compras_app, "generate_purchase_order_pdf", lambda **kwargs: b"purchase-pdf")
-    monkeypatch.setattr(compras_app, "generate_sales_invoice_pdf", lambda **kwargs: b"sales-pdf")
-    with TestClient(compras_app.app) as test_client:
-        yield test_client
+class ComprasServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.store = {
+            "suppliers": [{"id": 1, "name": "TechSupply Inc", "contact_email": "sales@techsupply.com"}],
+            "customers": [{"id": 1, "name": "ABC Retail Store", "contact_email": "manager@abc.com"}],
+            "items": [
+                {"id": 1, "sku": "SKU-001", "name": "Laptop", "quantity_on_hand": 10, "unit_cost": 1200.0, "unit_price": 1500.0},
+            ],
+            "purchase_orders": [],
+            "sales_orders": [],
+            "stock_movements": [],
+            "payment_records": [],
+        }
+        self._orig_initialize_database = compras_app.initialize_database
+        self._orig_seed_data = getattr(compras_app, "seed_data", None)
+        self._orig_get_db = compras_app.get_db
+        self._orig_purchase_pdf = compras_app.generate_purchase_order_pdf
+        self._orig_sales_pdf = compras_app.generate_sales_invoice_pdf
 
+        compras_app.initialize_database = lambda: None
+        if self._orig_seed_data is not None:
+            compras_app.seed_data = lambda: None
+        compras_app.get_db = lambda: FakeConn(self.store)
+        compras_app.generate_purchase_order_pdf = lambda **kwargs: b"purchase-pdf"
+        compras_app.generate_sales_invoice_pdf = lambda **kwargs: b"sales-pdf"
 
-def test_health_and_purchase_order_flow(client):
-    response = client.get("/health")
-    assert response.status_code == 200
+        self.client = TestClient(compras_app.app)
 
-    purchase_response = client.post(
-        "/purchase-orders",
-        json={"item_id": 1, "supplier_id": 1, "quantity": 2, "unit_price": 1000, "expected_delivery_days": 7},
-        headers={"user-name": "compras"},
-    )
-    assert purchase_response.status_code == 200
-    assert purchase_response.json()["status"] == "pending"
+    def tearDown(self):
+        self.client.close()
+        compras_app.initialize_database = self._orig_initialize_database
+        if self._orig_seed_data is not None:
+            compras_app.seed_data = self._orig_seed_data
+        compras_app.get_db = self._orig_get_db
+        compras_app.generate_purchase_order_pdf = self._orig_purchase_pdf
+        compras_app.generate_sales_invoice_pdf = self._orig_sales_pdf
 
+    def test_health_and_purchase_order_flow(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
 
-def test_sales_flow_and_summary(client):
-    sales_response = client.post(
-        "/sales-orders",
-        json={"item_id": 1, "customer_id": 1, "quantity": 1, "expected_delivery_days": 3},
-        headers={"user-name": "ventas"},
-    )
-    assert sales_response.status_code == 200
-    assert sales_response.json()["total_amount"] == 1500.0
+        purchase_response = self.client.post(
+            "/purchase-orders",
+            json={"item_id": 1, "supplier_id": 1, "quantity": 2, "unit_price": 1000, "expected_delivery_days": 7},
+            headers={"user-name": "compras"},
+        )
+        self.assertEqual(purchase_response.status_code, 200)
+        self.assertEqual(purchase_response.json()["status"], "pending")
 
-    summary_response = client.get("/stats/commercial-summary", headers={"user-name": "ventas"})
-    assert summary_response.status_code == 200
-    summary = summary_response.json()
-    assert "purchase" in summary
-    assert "sale" in summary
-    assert summary["payment_total"] == 0.0
+    def test_sales_flow_and_summary(self):
+        sales_response = self.client.post(
+            "/sales-orders",
+            json={"item_id": 1, "customer_id": 1, "quantity": 1, "expected_delivery_days": 3},
+            headers={"user-name": "ventas"},
+        )
+        self.assertEqual(sales_response.status_code, 200)
+        self.assertEqual(sales_response.json()["total_amount"], 1500.0)
+
+        summary_response = self.client.get("/stats/commercial-summary", headers={"user-name": "ventas"})
+        self.assertEqual(summary_response.status_code, 200)
+        summary = summary_response.json()
+        self.assertIn("purchase", summary)
+        self.assertIn("sale", summary)
+        self.assertEqual(summary["payment_total"], 0.0)

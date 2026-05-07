@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+import unittest
 
 from fastapi.testclient import TestClient
-import pytest
 
 import app.main as log_app
 
@@ -130,43 +130,45 @@ class FakeConn:
         return False
 
 
-@pytest.fixture()
-def client(monkeypatch):
-    store = {
-        "suppliers": [{"id": 1, "name": "TechSupply Inc"}],
-        "items": [
-            {
-                "id": 1,
-                "sku": "SKU-001",
-                "name": "Laptop",
-                "quantity_on_hand": 2,
-                "minimum_threshold": 5,
-                "reorder_quantity": 10,
-                "supplier_id": 1,
-                "unit_cost": 1200.0,
-                "active": True,
-                "last_updated": datetime(2026, 5, 6, 10, 0, 0),
-            }
-        ],
-        "alerts": [],
-        "requests": [],
-    }
-    monkeypatch.setattr(log_app, "get_db", lambda: FakeConn(store))
-    with TestClient(log_app.app) as test_client:
-        yield test_client
+class LogisticaServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.store = {
+            "suppliers": [{"id": 1, "name": "TechSupply Inc"}],
+            "items": [
+                {
+                    "id": 1,
+                    "sku": "SKU-001",
+                    "name": "Laptop",
+                    "quantity_on_hand": 2,
+                    "minimum_threshold": 5,
+                    "reorder_quantity": 10,
+                    "supplier_id": 1,
+                    "unit_cost": 1200.0,
+                    "active": True,
+                    "last_updated": datetime(2026, 5, 6, 10, 0, 0),
+                }
+            ],
+            "alerts": [],
+            "requests": [],
+        }
+        self._orig_get_db = log_app.get_db
+        log_app.get_db = lambda: FakeConn(self.store)
+        self.client = TestClient(log_app.app)
 
+    def tearDown(self):
+        self.client.close()
+        log_app.get_db = self._orig_get_db
 
-def test_items_below_minimum_and_dashboard(client):
-    response = client.get("/monitor/items-below-minimum", headers={"user-name": "ops"})
-    assert response.status_code == 200
-    assert response.json()[0]["needs_reorder"] is True
+    def test_items_below_minimum_and_dashboard(self):
+        response = self.client.get("/monitor/items-below-minimum", headers={"user-name": "ops"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()[0]["needs_reorder"])
 
-    dashboard = client.get("/monitor/stock-status-dashboard", headers={"user-name": "ops"})
-    assert dashboard.status_code == 200
-    assert dashboard.json()["below_minimum_count"] == 1
+        dashboard = self.client.get("/monitor/stock-status-dashboard", headers={"user-name": "ops"})
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.json()["below_minimum_count"], 1)
 
-
-def test_alert_generation(client):
-    response = client.post("/monitor/check-and-alert", headers={"user-name": "ops"})
-    assert response.status_code == 200
-    assert response.json()["alerts_created"] == 1
+    def test_alert_generation(self):
+        response = self.client.post("/monitor/check-and-alert", headers={"user-name": "ops"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["alerts_created"], 1)
