@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@postgres:5432/transactions_db')
+DATABASE_URL = os.getenv('POSTGRES_URL', os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/transactions_db'))
 REPORT_FILENAME = 'ingresos_totales.pdf'
 REPORT_KEY = 'ingresos_totales'
 ROLE_PERMISSIONS = {

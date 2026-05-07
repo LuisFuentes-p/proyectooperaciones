@@ -27,7 +27,7 @@ app.add_middleware(
 )
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://operaciones:operaciones@localhost:5432/transactions_db")
+DATABASE_URL = os.getenv("POSTGRES_URL", os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/transactions_db"))
 
 @contextmanager
 def get_db():
@@ -407,3 +407,145 @@ def get_overdue_purchase_orders(user_name: str = Header(None)):
                 })
             
             return orders
+# ============ DELIVERIES (ENTREGAS) ============
+
+
+@app.post("/deliveries")
+def create_delivery(payload: dict, user_name: str = Header(None)):
+    """Create a delivery record for an order"""
+    if not user_name:
+        raise HTTPException(status_code=403, detail="User not identified")
+
+    order_id = payload.get("order_id")
+    delivery_address = payload.get("delivery_address")
+    assigned_to = payload.get("assigned_to")
+    vehicle = payload.get("vehicle")
+
+    if not order_id or not delivery_address:
+        raise HTTPException(status_code=400, detail="order_id and delivery_address required")
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO deliveries (order_id, delivery_address, assigned_to, vehicle, status, created_by, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW()) RETURNING id, status, created_at
+                """,
+                (order_id, delivery_address, assigned_to, vehicle, "pending", user_name),
+            )
+            row = cur.fetchone()
+        conn.commit()
+
+    return {"id": row[0], "status": row[1], "created_at": row[2].isoformat() if row[2] else None}
+
+
+@app.patch("/deliveries/{delivery_id}/assign")
+def assign_delivery(delivery_id: int, payload: dict, user_name: str = Header(None)):
+    """Assign a driver and vehicle to a delivery"""
+    if not user_name:
+        raise HTTPException(status_code=403, detail="User not identified")
+
+    assigned_to = payload.get("assigned_to")
+    vehicle = payload.get("vehicle")
+
+    if not assigned_to and not vehicle:
+        raise HTTPException(status_code=400, detail="assigned_to or vehicle required")
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE deliveries SET assigned_to = %s, vehicle = %s, assigned_at = NOW() WHERE id = %s RETURNING id, assigned_to, vehicle",
+                (assigned_to, vehicle, delivery_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    return {"id": row[0], "assigned_to": row[1], "vehicle": row[2]}
+
+
+@app.patch("/deliveries/{delivery_id}/status")
+def update_delivery_status(delivery_id: int, payload: dict, user_name: str = Header(None)):
+    """Update the status of a delivery (pending, in_transit, delivered)"""
+    if not user_name:
+        raise HTTPException(status_code=403, detail="User not identified")
+
+    new_status = payload.get("status")
+    if new_status not in ("pending", "in_transit", "delivered"):
+        raise HTTPException(status_code=400, detail="invalid status")
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            if new_status == "delivered":
+                cur.execute(
+                    "UPDATE deliveries SET status = %s, delivered_at = NOW() WHERE id = %s RETURNING id, status, delivered_at",
+                    (new_status, delivery_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE deliveries SET status = %s WHERE id = %s RETURNING id, status",
+                    (new_status, delivery_id),
+                )
+            row = cur.fetchone()
+        conn.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    result = {"id": row[0], "status": row[1]}
+    if len(row) >= 3 and row[2]:
+        result["delivered_at"] = row[2].isoformat()
+    return result
+
+
+@app.get("/deliveries/{delivery_id}")
+def get_delivery(delivery_id: int, user_name: str = Header(None)):
+    if not user_name:
+        raise HTTPException(status_code=403, detail="User not identified")
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, order_id, delivery_address, assigned_to, vehicle, status, created_by, created_at, assigned_at, delivered_at FROM deliveries WHERE id = %s", (delivery_id,))
+            row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    return {
+        "id": row[0],
+        "order_id": row[1],
+        "delivery_address": row[2],
+        "assigned_to": row[3],
+        "vehicle": row[4],
+        "status": row[5],
+        "created_by": row[6],
+        "created_at": row[7].isoformat() if row[7] else None,
+        "assigned_at": row[8].isoformat() if row[8] else None,
+        "delivered_at": row[9].isoformat() if row[9] else None,
+    }
+
+
+@app.get("/deliveries")
+def list_deliveries(user_name: str = Header(None)):
+    if not user_name:
+        raise HTTPException(status_code=403, detail="User not identified")
+
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, order_id, delivery_address, assigned_to, vehicle, status FROM deliveries ORDER BY created_at DESC")
+            rows = cur.fetchall()
+
+    deliveries = []
+    for row in rows:
+        deliveries.append({
+            "id": row[0],
+            "order_id": row[1],
+            "delivery_address": row[2],
+            "assigned_to": row[3],
+            "vehicle": row[4],
+            "status": row[5],
+        })
+
+    return deliveries

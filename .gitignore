@@ -1,5 +1,6 @@
 readme.md
 README.md
+DOCUMENTACION_BD_MICROSERVICIOS.md
 
 # Node.js
 node_modules/
@@ -26,3 +27,5 @@ build/
 dist/
 *.egg-info/
 pip-wheel-metadata/
+
+Historias_de_Usuario.md

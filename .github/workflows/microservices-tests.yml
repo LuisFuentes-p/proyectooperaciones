@@ -1,0 +1,39 @@
+name: Microservices tests
+
+on:
+  push:
+    paths:
+      - 'microservicios/**'
+      - '.github/workflows/microservices-tests.yml'
+  pull_request:
+    paths:
+      - 'microservicios/**'
+      - '.github/workflows/microservices-tests.yml'
+
+jobs:
+  test-microservices:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - autenticacion
+          - compras
+          - finanzas
+          - inventario
+          - logistica
+          - nomina
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        working-directory: ./microservicios/${{ matrix.service }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        working-directory: ./microservicios/${{ matrix.service }}
+        run: pytest -q

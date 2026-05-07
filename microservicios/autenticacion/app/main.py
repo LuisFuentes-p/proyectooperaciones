@@ -11,7 +11,7 @@ from jose import jwt
 
 app = FastAPI(title="Auth Service")
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://user:password@postgres:5432/transactions_db")
+DB_URL = os.getenv("POSTGRES_URL", os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/transactions_db"))
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXP_SECONDS = int(os.getenv("JWT_EXP_SECONDS", "3600"))

@@ -26,7 +26,7 @@ app.add_middleware(
 )
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://operaciones:operaciones@localhost:5432/transactions_db")
+DATABASE_URL = os.getenv("POSTGRES_URL", os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/transactions_db"))
 
 @contextmanager
 def get_db():
