@@ -16,11 +16,15 @@ import os
 
 app = FastAPI(title="Inventario Service", version="1.0.0")
 
-# CORS configuration
+# CORS configuration: read allowed origins from environment to avoid
+# wildcard + credentials conflicts in browsers
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+allow_credentials = os.getenv("ALLOW_CREDENTIALS", "false").lower() == "true"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

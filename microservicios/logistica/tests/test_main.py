@@ -8,72 +8,273 @@ from fastapi.testclient import TestClient
 import app.main as log_app
 
 
+# =============================================================================
+# FAKE CURSOR
+# =============================================================================
+
 class FakeCursor:
+
     def __init__(self, store: dict[str, list[dict]]):
+
         self.store = store
         self._result = None
         self._results = []
 
     def execute(self, query: str, params=None):
+
         normalized = " ".join(query.split()).lower()
-        if normalized.startswith("select i.id, i.sku, i.name, i.quantity_on_hand, i.minimum_threshold, i.reorder_quantity, s.name as supplier_name, i.unit_cost from items i left join suppliers s on i.supplier_id = s.id where i.quantity_on_hand < i.minimum_threshold and i.active = true order by (i.minimum_threshold - i.quantity_on_hand) desc"):
-            rows = [item for item in self.store["items"] if item["active"] and item["quantity_on_hand"] < item["minimum_threshold"]]
-            self._results = [self._item_below_row(item) for item in rows]
-        elif normalized.startswith("select i.id, i.sku, i.name, i.reorder_quantity, s.name as supplier_name, i.minimum_threshold from items i left join suppliers s on i.supplier_id = s.id where i.quantity_on_hand = 0 and i.active = true order by i.last_updated desc"):
-            rows = [item for item in self.store["items"] if item["active"] and item["quantity_on_hand"] == 0]
-            self._results = [self._stockout_row(item) for item in rows]
-        elif normalized.startswith("select count(*) as total_items"):
-            active_items = [item for item in self.store["items"] if item["active"]]
+
+        # =========================================================================
+        # ITEMS BELOW MINIMUM
+        # =========================================================================
+
+        if (
+            "from items i" in normalized
+            and "quantity_on_hand < i.minimum_threshold" in normalized
+        ):
+
+            rows = [
+                item
+                for item in self.store["items"]
+                if (
+                    item["active"]
+                    and item["quantity_on_hand"]
+                    < item["minimum_threshold"]
+                )
+            ]
+
+            self._results = [
+                self._item_below_row(item)
+                for item in rows
+            ]
+
+        # =========================================================================
+        # STOCKOUT ITEMS
+        # =========================================================================
+
+        elif (
+            "quantity_on_hand = 0" in normalized
+            and "from items i" in normalized
+        ):
+
+            rows = [
+                item
+                for item in self.store["items"]
+                if (
+                    item["active"]
+                    and item["quantity_on_hand"] == 0
+                )
+            ]
+
+            self._results = [
+                self._stockout_row(item)
+                for item in rows
+            ]
+
+        # =========================================================================
+        # DASHBOARD
+        # =========================================================================
+
+        elif "count(*) as total_items" in normalized:
+
+            active_items = [
+                item
+                for item in self.store["items"]
+                if item["active"]
+            ]
+
             total_items = len(active_items)
-            stockout_count = sum(1 for item in active_items if item["quantity_on_hand"] == 0)
-            below_minimum_count = sum(1 for item in active_items if item["quantity_on_hand"] < item["minimum_threshold"])
-            total_value = sum(item["quantity_on_hand"] * item["unit_cost"] for item in active_items)
-            self._result = (total_items, stockout_count, below_minimum_count, total_value)
-        elif normalized.startswith("select id, quantity_on_hand, minimum_threshold, reorder_quantity from items where quantity_on_hand < minimum_threshold and active = true"):
-            rows = [item for item in self.store["items"] if item["active"] and item["quantity_on_hand"] < item["minimum_threshold"]]
-            self._results = [(item["id"], item["quantity_on_hand"], item["minimum_threshold"], item["reorder_quantity"]) for item in rows]
-        elif normalized.startswith("select id from stock_alerts where item_id = %s and resolved = false and alert_type = 'below_minimum'"):
+
+            stockout_count = sum(
+                1
+                for item in active_items
+                if item["quantity_on_hand"] == 0
+            )
+
+            below_minimum_count = sum(
+                1
+                for item in active_items
+                if (
+                    item["quantity_on_hand"]
+                    < item["minimum_threshold"]
+                )
+            )
+
+            total_value = sum(
+                item["quantity_on_hand"]
+                * item["unit_cost"]
+                for item in active_items
+            )
+
+            self._result = (
+                total_items,
+                stockout_count,
+                below_minimum_count,
+                total_value,
+            )
+
+        # =========================================================================
+        # ITEMS FOR ALERT CHECK
+        # =========================================================================
+
+        elif (
+            "from items" in normalized
+            and "quantity_on_hand < minimum_threshold" in normalized
+        ):
+
+            rows = [
+                item
+                for item in self.store["items"]
+                if (
+                    item["active"]
+                    and item["quantity_on_hand"]
+                    < item["minimum_threshold"]
+                )
+            ]
+
+            self._results = [
+                (
+                    item["id"],
+                    item["quantity_on_hand"],
+                    item["minimum_threshold"],
+                    item["reorder_quantity"],
+                )
+                for item in rows
+            ]
+
+        # =========================================================================
+        # EXISTING BELOW MINIMUM ALERT
+        # =========================================================================
+
+        elif (
+            "from stock_alerts" in normalized
+            and "alert_type = 'below_minimum'" in normalized
+        ):
+
             item_id = params[0]
-            row = next((alert for alert in self.store["alerts"] if alert["item_id"] == item_id and not alert["resolved"] and alert["alert_type"] == "below_minimum"), None)
-            self._result = (row["id"],) if row else None
-        elif normalized.startswith("insert into stock_alerts"):
+
+            row = next(
+                (
+                    alert
+                    for alert in self.store["alerts"]
+                    if (
+                        alert["item_id"] == item_id
+                        and not alert["resolved"]
+                        and alert["alert_type"]
+                        == "below_minimum"
+                    )
+                ),
+                None
+            )
+
+            self._result = (
+                (row["id"],)
+                if row
+                else None
+            )
+
+        # =========================================================================
+        # INSERT ALERT
+        # =========================================================================
+
+        elif "insert into stock_alerts" in normalized:
+
             alert_id = len(self.store["alerts"]) + 1
-            self.store["alerts"].append(
-                {
-                    "id": alert_id,
-                    "item_id": params[0],
-                    "alert_type": params[1],
-                    "current_quantity": params[2],
-                    "threshold": params[3],
-                    "severity": params[4],
-                    "acknowledged": False,
-                    "resolved": False,
-                    "created_at": datetime(2026, 5, 6, 12, 0, 0),
-                }
-            )
-        elif normalized.startswith("select id from solicitudes_logistica where item_id = %s and (status = 'pending' or status = 'approved')"):
+
+            self.store["alerts"].append({
+                "id": alert_id,
+                "item_id": params[0],
+                "alert_type": params[1],
+                "current_quantity": params[2],
+                "threshold": params[3],
+                "severity": params[4],
+                "acknowledged": False,
+                "resolved": False,
+                "created_at": datetime(
+                    2026,
+                    5,
+                    6,
+                    12,
+                    0,
+                    0
+                ),
+            })
+
+        # =========================================================================
+        # EXISTING REQUEST
+        # =========================================================================
+
+        elif (
+            "from solicitudes_logistica" in normalized
+            and "status in ('pending', 'approved')" in normalized
+        ):
+
             item_id = params[0]
-            row = next((request for request in self.store["requests"] if request["item_id"] == item_id and request["status"] in {"pending", "approved"}), None)
-            self._result = (row["id"],) if row else None
-        elif normalized.startswith("insert into solicitudes_logistica"):
-            request_id = len(self.store["requests"]) + 1
-            self.store["requests"].append(
-                {
-                    "id": request_id,
-                    "item_id": params[0],
-                    "requested_quantity": params[1],
-                    "reason": params[2],
-                    "priority": params[3],
-                    "status": "pending",
-                    "created_at": datetime(2026, 5, 6, 12, 0, 0),
-                }
+
+            row = next(
+                (
+                    request
+                    for request in self.store["requests"]
+                    if (
+                        request["item_id"] == item_id
+                        and request["status"]
+                        in {"pending", "approved"}
+                    )
+                ),
+                None
             )
+
+            self._result = (
+                (row["id"],)
+                if row
+                else None
+            )
+
+        # =========================================================================
+        # INSERT REQUEST
+        # =========================================================================
+
+        elif "insert into solicitudes_logistica" in normalized:
+
+            request_id = len(self.store["requests"]) + 1
+
+            self.store["requests"].append({
+                "id": request_id,
+                "item_id": params[0],
+                "requested_quantity": params[1],
+                "reason": params[2],
+                "priority": params[3],
+                "status": "pending",
+                "created_at": datetime(
+                    2026,
+                    5,
+                    6,
+                    12,
+                    0,
+                    0
+                ),
+            })
+
         else:
+
             self._result = None
             self._results = []
 
+    # =========================================================================
+    # HELPERS
+    # =========================================================================
+
     def _item_below_row(self, item: dict):
-        supplier_name = next((supplier["name"] for supplier in self.store["suppliers"] if supplier["id"] == item["supplier_id"]), None)
+
+        supplier_name = next(
+            (
+                supplier["name"]
+                for supplier in self.store["suppliers"]
+                if supplier["id"] == item["supplier_id"]
+            ),
+            None
+        )
+
         return (
             item["id"],
             item["sku"],
@@ -86,7 +287,16 @@ class FakeCursor:
         )
 
     def _stockout_row(self, item: dict):
-        supplier_name = next((supplier["name"] for supplier in self.store["suppliers"] if supplier["id"] == item["supplier_id"]), None)
+
+        supplier_name = next(
+            (
+                supplier["name"]
+                for supplier in self.store["suppliers"]
+                if supplier["id"] == item["supplier_id"]
+            ),
+            None
+        )
+
         return (
             item["id"],
             item["sku"],
@@ -96,11 +306,19 @@ class FakeCursor:
             item["minimum_threshold"],
         )
 
+    # =========================================================================
+    # FETCH
+    # =========================================================================
+
     def fetchone(self):
         return self._result
 
     def fetchall(self):
         return self._results
+
+    # =========================================================================
+    # CONTEXT
+    # =========================================================================
 
     def __enter__(self):
         return self
@@ -109,8 +327,14 @@ class FakeCursor:
         return False
 
 
+# =============================================================================
+# FAKE CONNECTION
+# =============================================================================
+
 class FakeConn:
+
     def __init__(self, store: dict[str, list[dict]]):
+
         self.store = store
 
     def cursor(self):
@@ -130,10 +354,22 @@ class FakeConn:
         return False
 
 
+# =============================================================================
+# TESTS
+# =============================================================================
+
 class LogisticaServiceTests(unittest.TestCase):
+
     def setUp(self):
+
         self.store = {
-            "suppliers": [{"id": 1, "name": "TechSupply Inc"}],
+            "suppliers": [
+                {
+                    "id": 1,
+                    "name": "TechSupply Inc"
+                }
+            ],
+
             "items": [
                 {
                     "id": 1,
@@ -145,30 +381,119 @@ class LogisticaServiceTests(unittest.TestCase):
                     "supplier_id": 1,
                     "unit_cost": 1200.0,
                     "active": True,
-                    "last_updated": datetime(2026, 5, 6, 10, 0, 0),
+                    "last_updated": datetime(
+                        2026,
+                        5,
+                        6,
+                        10,
+                        0,
+                        0
+                    ),
                 }
             ],
+
             "alerts": [],
+
             "requests": [],
         }
+
         self._orig_get_db = log_app.get_db
-        log_app.get_db = lambda: FakeConn(self.store)
+
+        log_app.get_db = (
+            lambda: FakeConn(self.store)
+        )
+
         self.client = TestClient(log_app.app)
 
     def tearDown(self):
+
         self.client.close()
-        log_app.get_db = self._orig_get_db
+
+        log_app.get_db = (
+            self._orig_get_db
+        )
+
+    # =========================================================================
+    # ITEMS BELOW MINIMUM + DASHBOARD
+    # =========================================================================
 
     def test_items_below_minimum_and_dashboard(self):
-        response = self.client.get("/monitor/items-below-minimum", headers={"user-name": "ops"})
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()[0]["needs_reorder"])
 
-        dashboard = self.client.get("/monitor/stock-status-dashboard", headers={"user-name": "ops"})
-        self.assertEqual(dashboard.status_code, 200)
-        self.assertEqual(dashboard.json()["below_minimum_count"], 1)
+        response = self.client.get(
+            "/monitor/items-below-minimum",
+            headers={
+                "user-name": "ops"
+            }
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200
+        )
+
+        data = response.json()
+
+        self.assertEqual(len(data), 1)
+
+        self.assertTrue(
+            data[0]["needs_reorder"]
+        )
+
+        dashboard = self.client.get(
+            "/monitor/stock-status-dashboard",
+            headers={
+                "user-name": "ops"
+            }
+        )
+
+        self.assertEqual(
+            dashboard.status_code,
+            200
+        )
+
+        dashboard_data = dashboard.json()
+
+        self.assertEqual(
+            dashboard_data["below_minimum_count"],
+            1
+        )
+
+    # =========================================================================
+    # ALERT GENERATION
+    # =========================================================================
 
     def test_alert_generation(self):
-        response = self.client.post("/monitor/check-and-alert", headers={"user-name": "ops"})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["alerts_created"], 1)
+
+        response = self.client.post(
+            "/monitor/check-and-alert",
+            headers={
+                "user-name": "ops"
+            }
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200
+        )
+
+        data = response.json()
+
+        self.assertEqual(
+            data["alerts_created"],
+            1
+        )
+
+        self.assertEqual(
+            len(self.store["alerts"]),
+            1
+        )
+
+        self.assertEqual(
+            len(self.store["requests"]),
+            1
+        )
+
+        self.assertEqual(
+            self.store["alerts"][0]["alert_type"],
+            "below_minimum"
+        )
