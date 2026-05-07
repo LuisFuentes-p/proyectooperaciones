@@ -149,12 +149,13 @@ def test_inventory_integration():
                 
                 # Create test item
                 print("[Test 2] Creating inventory item...")
+                test_sku = f"SKU-IT-{datetime.now().strftime('%H%M%S')}"
                 cur.execute("""
                     INSERT INTO items (sku, name, quantity_on_hand, minimum_threshold, 
                                       reorder_quantity, unit_cost, unit_price, supplier_id)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id, sku, name
-                """, ("SKU-001", "Laptop Dell XPS", 15, 10, 50, 1200.0, 1500.0, supplier_id))
+                """, (test_sku, "Laptop Dell XPS", 15, 10, 50, 1200.0, 1500.0, supplier_id))
                 item_id, sku, item_name = cur.fetchone()
                 print(f"  ✓ Created item '{item_name}' (SKU: {sku}, Qty: 15)")
                 

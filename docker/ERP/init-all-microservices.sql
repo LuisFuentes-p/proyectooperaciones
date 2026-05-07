@@ -270,23 +270,112 @@ CREATE INDEX IF NOT EXISTS idx_payroll_records_employee_id ON payroll_records(em
 CREATE INDEX IF NOT EXISTS idx_auth_users_username ON auth_users(username);
 
 -- ============================================================================
--- SAMPLE DATA (OPTIONAL - uncomment to populate test data)
+-- SAMPLE DATA (IDEMPOTENT)
+-- Seeds at least one example row for every table.
 -- ============================================================================
 
--- INSERT INTO suppliers (name, contact_email, phone) VALUES 
--- ('TechSupply Inc', 'sales@techsupply.com', '+34-555-0001'),
--- ('Global Parts Co', 'info@globalparts.com', '+34-555-0002'),
--- ('LocalVendor Ltd', 'contact@localvendor.com', '+34-555-0003');
+INSERT INTO auth_users (id, username, password_hash)
+VALUES
+    (1, 'admin', 'demo-hash-admin'),
+    (2, 'compras', 'demo-hash-compras'),
+    (3, 'logistica', 'demo-hash-logistica')
+ON CONFLICT (username) DO NOTHING;
 
--- INSERT INTO customers (name, contact_email, phone, customer_type) VALUES 
--- ('ABC Retail Store', 'manager@abc.com', '+34-555-1001', 'retail'),
--- ('Tech Solutions LLC', 'orders@techsolutions.com', '+34-555-1002', 'wholesale'),
--- ('Direct Customer Inc', 'buyer@directcustomer.com', '+34-555-1003', 'retail');
+INSERT INTO suppliers (id, name, contact_email, phone, city, country)
+VALUES
+    (1, 'TechSupply Inc', 'sales@techsupply.com', '+34-555-0001', 'Madrid', 'Spain'),
+    (2, 'Global Parts Co', 'info@globalparts.com', '+34-555-0002', 'Barcelona', 'Spain')
+ON CONFLICT (id) DO NOTHING;
 
--- INSERT INTO auth_users (username, password_hash) VALUES
--- ('admin', '$2b$12$...hashed_password...'),
--- ('user1', '$2b$12$...hashed_password...'),
--- ('logistica', '$2b$12$...hashed_password...');
+INSERT INTO customers (id, name, contact_email, phone, city, country, customer_type, credit_limit)
+VALUES
+    (1, 'ABC Retail Store', 'manager@abc.com', '+34-555-1001', 'Madrid', 'Spain', 'retail', 5000.00),
+    (2, 'Tech Solutions LLC', 'orders@techsolutions.com', '+34-555-1002', 'Valencia', 'Spain', 'wholesale', 25000.00)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO items (id, sku, name, description, quantity_on_hand, minimum_threshold, reorder_quantity, unit_cost, unit_price, unit_of_measure, supplier_id, category, active)
+VALUES
+    (1, 'SKU-001', 'Laptop Dell XPS', 'Business laptop', 15, 10, 20, 1200.00, 1500.00, 'unidad', 1, 'electronics', TRUE),
+    (2, 'SKU-002', 'Wireless Mouse', 'Ergonomic wireless mouse', 50, 15, 30, 15.00, 25.00, 'unidad', 2, 'accessories', TRUE)
+ON CONFLICT (sku) DO NOTHING;
+
+INSERT INTO purchase_orders (id, item_id, supplier_id, quantity, unit_price, total_amount, status, expected_delivery_date, requested_by, pdf_filename)
+VALUES
+    (1, 1, 1, 5, 1200.00, 6000.00, 'pending', CURRENT_DATE + INTERVAL '3 days', 'compras', 'po-1.pdf')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO sales_orders (id, item_id, customer_id, quantity, unit_price, total_amount, status, expected_delivery_date, created_by, invoice_filename)
+VALUES
+    (1, 1, 1, 2, 1500.00, 3000.00, 'confirmed', CURRENT_DATE + INTERVAL '2 days', 'ventas', 'invoice-1.pdf')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO payment_records (id, order_type, order_id, counterparty_type, counterparty_name, amount, payment_method, notes, created_by)
+SELECT 1, 'sale', 1, 'customer', 'ABC Retail Store', 1500.00, 'transfer', 'partial payment', 'finanzas'
+WHERE NOT EXISTS (SELECT 1 FROM payment_records WHERE id = 1);
+
+INSERT INTO stock_movements (id, item_id, movement_type, quantity, reason, reference_id, created_by)
+SELECT 1, 1, 'in', 5, 'purchase_received', 1, 'inventario'
+WHERE NOT EXISTS (SELECT 1 FROM stock_movements WHERE id = 1);
+
+INSERT INTO stock_alerts (id, item_id, alert_type, current_quantity, threshold, severity, acknowledged, resolved)
+SELECT 1, 1, 'below_minimum', 8, 10, 'warning', FALSE, FALSE
+WHERE NOT EXISTS (SELECT 1 FROM stock_alerts WHERE id = 1);
+
+INSERT INTO solicitudes_logistica (id, item_id, requested_quantity, reason, priority, status, approved_by)
+SELECT 1, 1, 20, 'restock', 'high', 'approved', 'logistica'
+WHERE NOT EXISTS (SELECT 1 FROM solicitudes_logistica WHERE id = 1);
+
+INSERT INTO deliveries (id, order_id, delivery_address, assigned_to, vehicle, status, created_by)
+SELECT 1, 1, 'Calle Principal 123, Madrid', 'Juan Perez', 'Van-01', 'in_transit', 'logistica'
+WHERE NOT EXISTS (SELECT 1 FROM deliveries WHERE id = 1);
+
+INSERT INTO report_files (id, report_key, title, filename, content_type, file_bytes, file_size)
+SELECT
+    1,
+    'ingresos_totales',
+    'Reporte de Ingresos Totales',
+    'ingresos_totales_demo.pdf',
+    'application/pdf',
+    convert_to('demo pdf content', 'UTF8'),
+    octet_length(convert_to('demo pdf content', 'UTF8'))
+WHERE NOT EXISTS (SELECT 1 FROM report_files WHERE id = 1);
+
+INSERT INTO app_users (id, username, display_name, role)
+VALUES
+    (1, 'admin', 'Administrador', 'admin'),
+    (2, 'viewer', 'Consulta General', 'viewer')
+ON CONFLICT (username) DO NOTHING;
+
+INSERT INTO employees (id, name, email, role, salary, hire_date, active)
+VALUES
+    (1, 'Maria Lopez', 'maria.lopez@empresa.com', 'analyst', 2200.00, CURRENT_DATE - INTERVAL '180 days', TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO attendance (id, employee_id, attendance_date, hours_worked, status)
+SELECT 1, 1, CURRENT_DATE - INTERVAL '1 day', 8.0, 'present'
+WHERE NOT EXISTS (SELECT 1 FROM attendance WHERE id = 1);
+
+INSERT INTO payroll_records (id, employee_id, period_start, period_end, gross_salary, deductions, net_salary, payment_date, status)
+SELECT 1, 1, date_trunc('month', CURRENT_DATE)::date, (date_trunc('month', CURRENT_DATE) + INTERVAL '29 days')::date, 2200.00, 200.00, 2000.00, CURRENT_DATE, 'paid'
+WHERE NOT EXISTS (SELECT 1 FROM payroll_records WHERE id = 1);
+
+-- keep sequences aligned after explicit IDs
+SELECT setval(pg_get_serial_sequence('auth_users', 'id'), COALESCE((SELECT MAX(id) FROM auth_users), 1), true);
+SELECT setval(pg_get_serial_sequence('suppliers', 'id'), COALESCE((SELECT MAX(id) FROM suppliers), 1), true);
+SELECT setval(pg_get_serial_sequence('customers', 'id'), COALESCE((SELECT MAX(id) FROM customers), 1), true);
+SELECT setval(pg_get_serial_sequence('items', 'id'), COALESCE((SELECT MAX(id) FROM items), 1), true);
+SELECT setval(pg_get_serial_sequence('purchase_orders', 'id'), COALESCE((SELECT MAX(id) FROM purchase_orders), 1), true);
+SELECT setval(pg_get_serial_sequence('sales_orders', 'id'), COALESCE((SELECT MAX(id) FROM sales_orders), 1), true);
+SELECT setval(pg_get_serial_sequence('payment_records', 'id'), COALESCE((SELECT MAX(id) FROM payment_records), 1), true);
+SELECT setval(pg_get_serial_sequence('stock_movements', 'id'), COALESCE((SELECT MAX(id) FROM stock_movements), 1), true);
+SELECT setval(pg_get_serial_sequence('stock_alerts', 'id'), COALESCE((SELECT MAX(id) FROM stock_alerts), 1), true);
+SELECT setval(pg_get_serial_sequence('solicitudes_logistica', 'id'), COALESCE((SELECT MAX(id) FROM solicitudes_logistica), 1), true);
+SELECT setval(pg_get_serial_sequence('deliveries', 'id'), COALESCE((SELECT MAX(id) FROM deliveries), 1), true);
+SELECT setval(pg_get_serial_sequence('report_files', 'id'), COALESCE((SELECT MAX(id) FROM report_files), 1), true);
+SELECT setval(pg_get_serial_sequence('app_users', 'id'), COALESCE((SELECT MAX(id) FROM app_users), 1), true);
+SELECT setval(pg_get_serial_sequence('employees', 'id'), COALESCE((SELECT MAX(id) FROM employees), 1), true);
+SELECT setval(pg_get_serial_sequence('attendance', 'id'), COALESCE((SELECT MAX(id) FROM attendance), 1), true);
+SELECT setval(pg_get_serial_sequence('payroll_records', 'id'), COALESCE((SELECT MAX(id) FROM payroll_records), 1), true);
 
 -- ============================================================================
 -- DONE
